@@ -16,7 +16,7 @@ func TestAllocate(t *testing.T) {
 	RunSpecs(t, "cmd")
 }
 
-var _ = Describe("Allocation operations", func() {
+var _ = Describe("Configuration operations", func() {
 	It("can load a basic config", func() {
 
 		conf := `{

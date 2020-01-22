@@ -63,7 +63,6 @@ func AllocateAndReleaseAddressesTest(ipVersion string, ipRange string, ipGateway
 			return cmdAdd(args)
 		})
 		Expect(err).NotTo(HaveOccurred())
-		// fmt.Printf("!bang raw: %s\n", raw)
 		Expect(strings.Index(string(raw), "\"version\":")).Should(BeNumerically(">", 0))
 
 		result, err := current.GetResult(r)
@@ -110,6 +109,60 @@ func AllocateAndReleaseAddressesTest(ipVersion string, ipRange string, ipGateway
 		})
 		Expect(err).NotTo(HaveOccurred())
 	}
+}
+
+func AllocateWithoutReleaseTest(ipVersion string, ipRange string, ipGateway string, datastore string, expecterror bool) {
+	const ifname string = "eth0"
+	const nspath string = "/some/where"
+
+	var backend string
+	var store string
+	if datastore == whereaboutstypes.DatastoreKubernetes {
+		backend = fmt.Sprintf(`"kubernetes": {"kubeconfig": "%s"}`, kubeConfigPath)
+		store = datastore
+	} else {
+		backend = fmt.Sprintf(`"etcd_host": "%s"`, etcdHost)
+		store = whereaboutstypes.DatastoreETCD
+	}
+
+	conf := fmt.Sprintf(`{
+		"cniVersion": "0.3.1",
+		"name": "mynet",
+		"type": "ipvlan",
+		"master": "foo0",
+		"ipam": {
+		  "type": "whereabouts",
+		  "datastore": "%s",
+		  "log_file" : "/tmp/whereabouts.log",
+			"log_level" : "debug",
+		  %s,
+		  "range": "%s",
+		  "gateway": "%s",
+		  "routes": [
+			{ "dst": "0.0.0.0/0" }
+		  ]
+		}
+	  }`, store, backend, ipRange, ipGateway)
+
+	// addressArgs := []*skel.CmdArgs{}
+
+	args := &skel.CmdArgs{
+		ContainerID: "dummy-NORELEASE",
+		Netns:       nspath,
+		IfName:      ifname,
+		StdinData:   []byte(conf),
+	}
+
+	// Allocate the IP
+	_, _, err := testutils.CmdAddWithArgs(args, func() error {
+		return cmdAdd(args)
+	})
+	if expecterror {
+		Expect(err).To(HaveOccurred())
+	} else {
+		Expect(err).NotTo(HaveOccurred())
+	}
+
 }
 
 var _ = Describe("Whereabouts operations", func() {
@@ -198,7 +251,6 @@ var _ = Describe("Whereabouts operations", func() {
 			return cmdAdd(args)
 		})
 		Expect(err).NotTo(HaveOccurred())
-		// fmt.Printf("!bang raw: %s\n", raw)
 		Expect(strings.Index(string(raw), "\"version\":")).Should(BeNumerically(">", 0))
 
 		result, err := current.GetResult(r)
@@ -265,7 +317,6 @@ var _ = Describe("Whereabouts operations", func() {
 		r, raw, err := testutils.CmdAddWithArgs(args, func() error {
 			return cmdAdd(args)
 		})
-		// fmt.Printf("!bang raw: %s\n", raw)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(strings.Index(string(raw), "\"version\":")).Should(BeNumerically(">", 0))
 
@@ -362,6 +413,21 @@ var _ = Describe("Whereabouts operations", func() {
 			return cmdDel(args)
 		})
 		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("can exhaust a range", func() {
+
+		ipVersion := "4"
+		ipRange := "192.168.1.0/28"
+		ipGateway := "192.168.10.1"
+		// expectedAddress := "192.168.1.1/24"
+
+		for i := 1; i <= 14; i++ {
+			AllocateWithoutReleaseTest(ipVersion, ipRange, ipGateway, whereaboutstypes.DatastoreKubernetes, false)
+		}
+
+		AllocateWithoutReleaseTest(ipVersion, ipRange, ipGateway, whereaboutstypes.DatastoreKubernetes, true)
+
 	})
 
 	It("allocates an address using the range_start parameter", func() {
