@@ -45,8 +45,7 @@ git clone https://github.com/k8snetworkplumbingwg/whereabouts && cd whereabouts
 kubectl apply \
     -f doc/crds/daemonset-install.yaml \
     -f doc/crds/whereabouts.cni.cncf.io_ippools.yaml \
-    -f doc/crds/whereabouts.cni.cncf.io_overlappingrangeipreservations.yaml \
-    -f doc/crds/ip-reconciler-job.yaml
+    -f doc/crds/whereabouts.cni.cncf.io_overlappingrangeipreservations.yaml
 ```
 
 The daemonset installation requires Kubernetes Version 1.16 or later.
@@ -130,6 +129,71 @@ The same applies for the usage of IPv6:
 }
 ```
 
+### Example IPAM config for assigning multiple IP addresses
+
+`ipRanges` field can be used to provide a list of range configurations for assigning multiple IP addresses.
+
+```
+{
+      "cniVersion": "0.3.0",
+      "name": "whereaboutsexample",
+      "type": "macvlan",
+      "master": "eth0",
+      "mode": "bridge",
+      "ipam": {
+        "type": "whereabouts",
+        "ipRanges": [{
+            "range": "192.168.10.1/24"
+          }, {
+            "range": "176.168.10.1/16"
+        }]
+      }
+}
+```
+
+The above can also be used in combination with basic `range` field as below:
+
+```
+{
+      "cniVersion": "0.3.0",
+      "name": "whereaboutsexample",
+      "type": "macvlan",
+      "master": "eth0",
+      "mode": "bridge",
+      "ipam": {
+        "type": "whereabouts",
+        "ipRanges": [{
+            "range": "192.168.10.1/24"
+          }, {
+            "range": "176.168.10.1/16"
+        }],
+        "range": "abcd::1/64"
+      }
+}
+```
+
+### Example DualStack config
+
+Similar to above, `ipRanges` can be used for configuring DualStack
+
+```
+{
+      "cniVersion": "0.3.0",
+      "name": "whereaboutsexample",
+      "type": "macvlan",
+      "master": "eth0",
+      "mode": "bridge",
+      "ipam": {
+        "type": "whereabouts",
+        "ipRanges": [{
+            "range": "192.168.10.1/24"
+          }, {
+            "range": "abcd::1/64"
+        }]
+      }
+}
+```
+
 ## Core Parameters
 
 **Required**
@@ -157,7 +221,8 @@ The following parameters are optional:
 
 In the example, we exclude IP addresses in the range `192.168.2.229/30` from being allocated (in this case it's 3 addresses, `.229, .230, .231`), as well as `192.168.2.236/32` (just a single address).
 
-*Note*: It's up to you to properly set exclusion ranges that are within your subnet, there's no double checking for you (other than that the CIDR notation parses).
+*Note 1*: It's up to you to properly set exclusion ranges that are within your subnet, there's no double checking for you (other than that the CIDR notation parses).
+*Note 2*: In case of wide IPv6 CIDRs (`range`≤/64) only the first /65 range is addressable (e.g. from `x:x:x:x::0` to `x:x:x:x:7fff:ffff:ffff:ffff`).
 
 Additionally -- you can set the route, gateway and DNS using anything from the configurations for the [static IPAM plugin](https://github.com/containernetworking/plugins/tree/master/plugins/ipam/static) (as well as additional static IP addresses).
 
@@ -190,3 +255,4 @@ The typeface used in the logo is [AZONIX](https://www.dafont.com/azonix.font), b
 * There's probably a lot of comparison of IP addresses that could be optimized, lots of string conversion.
 * The etcd method has a number of limitations, in that it uses an all ASCII methodology. If this was binary, it could probably store more and have more efficient IP address comparison.
 * Unlikely to work in Canada, apparently it would have to be "where aboots?" for Canadians to be able to operate it.
+* In case of wide IPv6 CIDRs (`range`≤/64) only the first /65 range is addressable by Whereabouts due to uint64 offset calculation.

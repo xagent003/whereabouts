@@ -16,7 +16,7 @@ done
 HERE="$(dirname "$(readlink --canonicalize ${BASH_SOURCE[0]})")"
 ROOT="$(readlink --canonicalize "$HERE/..")"
 MULTUS_DAEMONSET_URL="https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset.yml"
-CNIS_DAEMONSET_URL="https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/e2e/cni-install.yml"
+CNIS_DAEMONSET_PATH="$ROOT/hack/cni-install.yml"
 TIMEOUT_K8="5000s"
 RETRY_MAX=10
 INTERVAL=10
@@ -85,7 +85,7 @@ echo "## install multus"
 retry kubectl create -f "${MULTUS_DAEMONSET_URL}"
 retry kubectl -n kube-system wait --for=condition=ready -l name="multus" pod --timeout=$TIMEOUT_K8
 echo "## install CNIs"
-retry kubectl create -f "${CNIS_DAEMONSET_URL}"
+retry kubectl create -f "${CNIS_DAEMONSET_PATH}"
 retry kubectl -n kube-system wait --for=condition=ready -l name="cni-plugins" pod --timeout=$TIMEOUT_K8
 echo "## build whereabouts"
 pushd "$ROOT"
@@ -98,7 +98,7 @@ trap "rm /tmp/whereabouts-img.tar || true" EXIT
 kind load image-archive --name "$KIND_CLUSTER_NAME" /tmp/whereabouts-img.tar
 
 echo "## install whereabouts"
-for file in "daemonset-install.yaml" "ip-reconciler-job.yaml" "whereabouts.cni.cncf.io_ippools.yaml" "whereabouts.cni.cncf.io_overlappingrangeipreservations.yaml"; do
+for file in "daemonset-install.yaml" "whereabouts.cni.cncf.io_ippools.yaml" "whereabouts.cni.cncf.io_overlappingrangeipreservations.yaml"; do
   retry kubectl apply -f "$ROOT/doc/crds/$file"
 done
 retry kubectl wait -n kube-system --for=condition=ready -l app=whereabouts pod --timeout=$TIMEOUT_K8

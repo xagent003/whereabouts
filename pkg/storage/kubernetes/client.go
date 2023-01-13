@@ -2,43 +2,38 @@ package kubernetes
 
 import (
 	"context"
-	whereaboutsv1alpha1 "github.com/k8snetworkplumbingwg/whereabouts/pkg/api/v1alpha1"
-	"github.com/k8snetworkplumbingwg/whereabouts/pkg/logging"
-	"github.com/k8snetworkplumbingwg/whereabouts/pkg/storage"
+	"time"
+
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+
+	whereaboutsv1alpha1 "github.com/k8snetworkplumbingwg/whereabouts/pkg/api/whereabouts.cni.cncf.io/v1alpha1"
+	wbclient "github.com/k8snetworkplumbingwg/whereabouts/pkg/client/clientset/versioned"
+	"github.com/k8snetworkplumbingwg/whereabouts/pkg/logging"
+	"github.com/k8snetworkplumbingwg/whereabouts/pkg/storage"
 )
 
 // Client has info on how to connect to the kubernetes cluster
 type Client struct {
-	client    client.Client
-	clientSet *kubernetes.Clientset
+	client    wbclient.Interface
+	clientSet kubernetes.Interface
 	retries   int
+	timeout   time.Duration
 }
 
-func NewClient() (*Client, error) {
-	scheme := runtime.NewScheme()
-	_ = whereaboutsv1alpha1.AddToScheme(scheme)
-
+func NewClient(timeout time.Duration) (*Client, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	return newClient(config, scheme)
+	return newClient(config, timeout)
 }
 
-func NewClientViaKubeconfig(kubeconfigPath string) (*Client, error) {
-	scheme := runtime.NewScheme()
-	_ = whereaboutsv1alpha1.AddToScheme(scheme)
-
+func NewClientViaKubeconfig(kubeconfigPath string, timeout time.Duration) (*Client, error) {
 	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath},
 		&clientcmd.ConfigOverrides{}).ClientConfig()
@@ -47,40 +42,43 @@ func NewClientViaKubeconfig(kubeconfigPath string) (*Client, error) {
 		return nil, err
 	}
 
-	return newClient(config, scheme)
+	return newClient(config, timeout)
 }
 
-func newClient(config *rest.Config, schema *runtime.Scheme) (*Client, error) {
+func newClient(config *rest.Config, timeout time.Duration) (*Client, error) {
 	clientSet, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
 	}
 
-	mapper, err := apiutil.NewDiscoveryRESTMapper(config)
-	if err != nil {
-		return nil, err
-	}
-	c, err := client.New(config, client.Options{Scheme: schema, Mapper: mapper})
+	c, err := wbclient.NewForConfig(config)
 	if err != nil {
 		return nil, err
 	}
 
-	return newKubernetesClient(c, clientSet), nil
+	return NewKubernetesClient(c, clientSet, timeout), nil
 }
 
-func newKubernetesClient(k8sClient client.Client, k8sClientSet *kubernetes.Clientset) *Client {
+func NewKubernetesClient(k8sClient wbclient.Interface, k8sClientSet kubernetes.Interface, timeout time.Duration) *Client {
+	if timeout == time.Duration(0) {
+		timeout = storage.RequestTimeout
+	}
 	return &Client{
 		client:    k8sClient,
 		clientSet: k8sClientSet,
 		retries:   storage.DatastoreRetries,
+		timeout:   timeout,
 	}
 }
 
 func (i *Client) ListIPPools(ctx context.Context) ([]storage.IPPool, error) {
 	logging.Debugf("listing IP pools")
-	ipPoolList := &whereaboutsv1alpha1.IPPoolList{}
 
-	if err := i.client.List(ctx, ipPoolList, &client.ListOptions{}); err != nil {
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, i.timeout)
+	defer cancel()
+
+	ipPoolList, err := i.client.WhereaboutsV1alpha1().IPPools("").List(ctxWithTimeout, metav1.ListOptions{})
+	if err != nil {
 		return nil, err
 	}
 
@@ -97,32 +95,34 @@ func (i *Client) ListIPPools(ctx context.Context) ([]storage.IPPool, error) {
 	return whereaboutsApiIPPoolList, nil
 }
 
-func (i *Client) ListPods() ([]v1.Pod, error) {
-	podList, err := i.clientSet.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+func (i *Client) ListPods(ctx context.Context) ([]v1.Pod, error) {
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, i.timeout)
+	defer cancel()
+
+	podList, err := i.clientSet.CoreV1().Pods(metav1.NamespaceAll).List(ctxWithTimeout, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
 
-	var podEntries []v1.Pod
-	for _, pod := range podList.Items {
-		podEntries = append(podEntries, pod)
-	}
-	return podEntries, nil
+	return podList.Items, nil
 }
 
 func (i *Client) ListOverlappingIPs(ctx context.Context) ([]whereaboutsv1alpha1.OverlappingRangeIPReservation, error) {
-	overlappingIPsList := whereaboutsv1alpha1.OverlappingRangeIPReservationList{}
-	if err := i.client.List(ctx, &overlappingIPsList, &client.ListOptions{}); err != nil {
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, storage.RequestTimeout)
+	defer cancel()
+
+	overlappingIPsList, err := i.client.WhereaboutsV1alpha1().OverlappingRangeIPReservations("").List(ctxWithTimeout, metav1.ListOptions{})
+	if err != nil {
 		return nil, err
 	}
 
-	var clusterWiderReservations []whereaboutsv1alpha1.OverlappingRangeIPReservation
-	for _, reservationInfo := range overlappingIPsList.Items {
-		clusterWiderReservations = append(clusterWiderReservations, reservationInfo)
-	}
-	return clusterWiderReservations, nil
+	return overlappingIPsList.Items, nil
 }
 
 func (i *Client) DeleteOverlappingIP(ctx context.Context, clusterWideIP *whereaboutsv1alpha1.OverlappingRangeIPReservation) error {
-	return i.client.Delete(ctx, clusterWideIP)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, storage.RequestTimeout)
+	defer cancel()
+
+	return i.client.WhereaboutsV1alpha1().OverlappingRangeIPReservations(clusterWideIP.GetNamespace()).Delete(
+		ctxWithTimeout, clusterWideIP.GetName(), metav1.DeleteOptions{})
 }
