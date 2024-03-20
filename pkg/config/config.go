@@ -356,7 +356,7 @@ func loadPluginConfig(bytes []byte) (*cnitypes.NetConf, error) {
 
 func isNetworkRelevant(ipamConfig *types.IPAMConfig) bool {
 	const relevantIPAMType = "whereabouts"
-	return ipamConfig.Type == relevantIPAMType
+	return strings.HasPrefix(ipamConfig.Type, relevantIPAMType)
 }
 
 type InvalidPluginError struct {

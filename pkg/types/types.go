@@ -14,8 +14,8 @@ const (
 	DefaultLeaderLeaseDuration    = 1500
 	DefaultLeaderRenewDeadline    = 1000
 	DefaultLeaderRetryPeriod      = 500
-	AddTimeLimit                  = 2 * time.Minute
-	DelTimeLimit                  = 1 * time.Minute
+	AddTimeLimit                  = 5 * time.Minute
+	DelTimeLimit                  = 5 * time.Minute
 	DefaultOverlappingIPsFeatures = true
 	DefaultSleepForRace           = 0
 )

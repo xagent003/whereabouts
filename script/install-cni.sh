@@ -113,7 +113,7 @@ else
 fi
 
 # copy whereabouts to the cni bin dir
-cp -f /whereabouts $CNI_BIN_DIR
+cp -f /whereabouts-omniva $CNI_BIN_DIR
 
 # ---------------------- end Generate a "kube-config".
 

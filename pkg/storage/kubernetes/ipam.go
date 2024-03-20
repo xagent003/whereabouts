@@ -456,6 +456,9 @@ func IPManagement(ctx context.Context, mode int, ipamConf whereaboutstypes.IPAMC
 		return newips, fmt.Errorf("IPAM client initialization error: no pod name")
 	}
 
+	// Show ipamConf before leader election
+	logging.Debugf("ipamConf before leader election: %v", ipamConf)
+
 	// setup leader election
 	le, leader, deposed := newLeaderElector(ctx, client.clientSet, client.namespace, client)
 	var wg sync.WaitGroup
@@ -506,6 +509,7 @@ func IPManagement(ctx context.Context, mode int, ipamConf whereaboutstypes.IPAMC
 	}()
 	wg.Wait()
 	close(stopM)
+
 	logging.Debugf("IPManagement: %v, %v", newips, err)
 	return newips, err
 }
