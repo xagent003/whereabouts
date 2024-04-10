@@ -22,6 +22,7 @@ var (
 type IPPool interface {
 	Allocations() []types.IPReservation
 	Update(ctx context.Context, reservations []types.IPReservation) error
+	GetTTL() int64
 }
 
 // Store is the interface that wraps the basic IP Allocation methods on the underlying storage backend

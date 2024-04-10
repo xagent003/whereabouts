@@ -44,6 +44,9 @@ spec:
                   description: IPAllocation represents metadata about the pod/container
                     owner of a specific IP
                   properties:
+                    deletion_timestamp:
+                      format: int64
+                      type: integer
                     id:
                       type: string
                     ifname:
@@ -62,9 +65,13 @@ spec:
                 description: Range is a RFC 4632/4291-style string that represents
                   an IP address and prefix length in CIDR notation
                 type: string
+              ttl:
+                format: int64
+                type: integer
             required:
             - allocations
             - range
+            - ttl
             type: object
         type: object
     served: true

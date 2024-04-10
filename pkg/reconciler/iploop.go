@@ -9,6 +9,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
+	"github.com/k8snetworkplumbingwg/whereabouts/pkg/allocate"
 	whereaboutsv1alpha1 "github.com/k8snetworkplumbingwg/whereabouts/pkg/api/whereabouts.cni.cncf.io/v1alpha1"
 	"github.com/k8snetworkplumbingwg/whereabouts/pkg/logging"
 	"github.com/k8snetworkplumbingwg/whereabouts/pkg/storage"
@@ -186,11 +187,10 @@ func (rl ReconcileLooper) ReconcileIPPools() ([]net.IP, error) {
 				continue
 			}
 
-			// Delete entry
-			currentIPReservations[idx] = currentIPReservations[len(currentIPReservations)-1]
-			currentIPReservations = currentIPReservations[:len(currentIPReservations)-1]
+			var deallocatedIP net.IP
+			currentIPReservations, deallocatedIP = allocate.DeallocateIPForIndex(currentIPReservations, idx, orphanedIP.Pool.GetTTL())
 
-			cleanedUpIpsPerPool = append(cleanedUpIpsPerPool, allocation.IP)
+			cleanedUpIpsPerPool = append(cleanedUpIpsPerPool, deallocatedIP)
 		}
 
 		if len(cleanedUpIpsPerPool) != 0 {

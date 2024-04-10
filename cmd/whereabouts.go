@@ -110,7 +110,12 @@ func cmdDel(client *kubernetes.KubernetesIPAM) error {
 	ctx, cancel := context.WithTimeout(context.Background(), types.DelTimeLimit)
 	defer cancel()
 
-	_, _ = kubernetes.IPManagement(ctx, types.Deallocate, client.Config, client)
+	logging.Debugf("OMNIVA: %v/n", client.Config)
+
+	_, err := kubernetes.IPManagement(ctx, types.Deallocate, client.Config, client)
+	if err != nil {
+		logging.Verbosef("WARNING: Problem deallocating IP: %s", err)
+	}
 
 	return nil
 }

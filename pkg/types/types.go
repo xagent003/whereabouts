@@ -53,6 +53,7 @@ type IPAMConfig struct {
 	IPRanges                 []RangeConfiguration `json:"ipRanges"`
 	OmitRanges               []string             `json:"exclude,omitempty"`
 	DNS                      cnitypes.DNS         `json:"dns"`
+	IPTTL                    int64                `json:"ip_ttl"`
 	Range                    string               `json:"range"`
 	NodeSliceSize            string               `json:"node_slice_size"`
 	RangeStart               net.IP               `json:"range_start,omitempty"`
@@ -85,6 +86,7 @@ func (ic *IPAMConfig) UnmarshalJSON(data []byte) error {
 		NodeSliceSize            string               `json:"node_slice_size"`
 		OmitRanges               []string             `json:"exclude,omitempty"`
 		DNS                      cnitypes.DNS         `json:"dns"`
+		IPTTL                    int64                `json:"ip_ttl"`
 		Range                    string               `json:"range"`
 		RangeStart               string               `json:"range_start,omitempty"`
 		RangeEnd                 string               `json:"range_end,omitempty"`
@@ -127,6 +129,7 @@ func (ic *IPAMConfig) UnmarshalJSON(data []byte) error {
 		IPRanges:                 ipamConfigAlias.IPRanges,
 		OmitRanges:               ipamConfigAlias.OmitRanges,
 		DNS:                      ipamConfigAlias.DNS,
+		IPTTL:                    ipamConfigAlias.IPTTL,
 		Range:                    ipamConfigAlias.Range,
 		RangeStart:               backwardsCompatibleIPAddress(ipamConfigAlias.RangeStart),
 		RangeEnd:                 backwardsCompatibleIPAddress(ipamConfigAlias.RangeEnd),
@@ -188,15 +191,16 @@ type Address struct {
 
 // IPReservation is an address that has been reserved by this plugin
 type IPReservation struct {
-	IP          net.IP `json:"ip"`
-	ContainerID string `json:"id"`
-	PodRef      string `json:"podref"`
-	IfName      string `json:"ifName"`
-	IsAllocated bool
+	IP                net.IP `json:"ip"`
+	ContainerID       string `json:"id"`
+	PodRef            string `json:"podref,omitempty"`
+	IfName            string `json:"ifName"`
+	DeletionTimestamp int64  `json:"deletion_timestamp,omitempty"`
+	IsAllocated       bool
 }
 
 func (ir IPReservation) String() string {
-	return fmt.Sprintf("IP: %s is reserved for pod: %s", ir.IP.String(), ir.PodRef)
+	return fmt.Sprintf("IP: %s is reserved for pod: %s with TTL %v", ir.IP.String(), ir.PodRef, ir.DeletionTimestamp)
 }
 
 const (

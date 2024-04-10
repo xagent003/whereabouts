@@ -3,6 +3,7 @@ package allocate
 import (
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/k8snetworkplumbingwg/whereabouts/pkg/iphelpers"
 	"github.com/k8snetworkplumbingwg/whereabouts/pkg/logging"
@@ -50,17 +51,51 @@ func AssignIP(ipamConf types.RangeConfiguration, reservelist []types.IPReservati
 }
 
 // DeallocateIP removes allocation from reserve list. Returns the updated reserve list and the deallocated IP.
-func DeallocateIP(reservelist []types.IPReservation, containerID string) ([]types.IPReservation, net.IP) {
+func DeallocateIP(reservelist []types.IPReservation, containerID string, ttl int64) ([]types.IPReservation, net.IP) {
 	index := getMatchingIPReservationIndex(reservelist, containerID)
 	if index < 0 {
 		// Allocation not found. Return the original reserve list and nil IP.
+		logging.Errorf("did not find reserved IP for container %v", containerID)
 		return reservelist, nil
 	}
 
-	ip := reservelist[index].IP
+	return DeallocateIPForIndex(reservelist, index, ttl)
+}
+
+func DeallocateIPForIndex(reservelist []types.IPReservation, index int, ttl int64) ([]types.IPReservation, net.IP) {
+	ipentry := &reservelist[index]
+	ip := ipentry.IP
 	logging.Debugf("Deallocating given previously used IP: %v", ip.String())
 
-	return removeIdxFromSlice(reservelist, index), ip
+	// if ttl not set do regular behavior
+	if ttl == 0 {
+		logging.Debugf("omniva deallocation with ttl == 0")
+		return removeIdxFromSlice(reservelist, index), ip
+	}
+
+	if ipentry.DeletionTimestamp == 0 {
+		ipentry.DeletionTimestamp = time.Now().Unix()
+		logging.Debugf("omniva deallocation setting deletion timestamp %v", ipentry.DeletionTimestamp)
+		return reservelist, ip
+	}
+
+	// Check if deletion timestamp is past the TTL threshold
+	logging.Debugf("omniva deallocation found deletion timestamp of %v", ipentry.DeletionTimestamp)
+
+	currTime := time.Now()
+	deletionTime := time.Unix(ipentry.DeletionTimestamp, 0)
+	expiration := deletionTime.Add(time.Duration(ttl) * time.Second)
+	isPastTTL := currTime.After(expiration)
+
+	if isPastTTL {
+		logging.Debugf("omniva past ttl: deletion timestamp: %v expiration: %v current: %v", deletionTime, expiration, currTime.Unix())
+		// if timestamp set and after time remove
+		return removeIdxFromSlice(reservelist, index), ip
+	}
+
+	logging.Debugf("omniva not past ttl: deletion timestamp: %v after ttl %v current: %v", deletionTime, expiration, currTime.Unix())
+	// if timestamp set and ttl not happened yet do nothing
+	return reservelist, ip
 }
 
 func getMatchingIPReservationIndex(reservelist []types.IPReservation, id string) int {

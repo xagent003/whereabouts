@@ -112,6 +112,7 @@ func newPodController(k8sCoreClient kubernetes.Interface, wbClient wbclientset.I
 		workqueue.DefaultControllerRateLimiter(),
 		ipReconcilerQueueName)
 
+	//TODO: this should reconcile against IPPools or nad rather than pods but dont want to change to much right now
 	podsInformer.AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			DeleteFunc: func(obj interface{}) {
@@ -225,19 +226,26 @@ func (pc *PodController) garbageCollectPodIPs(pod *v1.Pod) error {
 				if allocation.PodRef == podID(podNamespace, podName) {
 					logging.Verbosef("stale allocation to cleanup: %+v", allocation)
 
-					client := *wbclient.NewKubernetesClient(nil, pc.k8sClient)
+					client := *wbclient.NewKubernetesClient(pc.wbClient, pc.k8sClient)
 					wbClient := &wbclient.KubernetesIPAM{
-						Client: client,
-						Config: *ipamConfig,
+						Client:      client,
+						Config:      *ipamConfig,
+						Namespace:   os.Getenv("WHEREABOUTS_NAMESPACE"),
+						ContainerID: allocation.ContainerID,
 					}
 
 					if err != nil {
 						logging.Debugf("error while generating the IPAM client: %v", err)
 						continue
 					}
+					logging.Debugf("omniva about to run cleanup func")
+
 					if _, err := pc.cleanupFunc(context.TODO(), types.Deallocate, *ipamConfig, wbClient); err != nil {
 						logging.Errorf("failed to cleanup allocation: %v", err)
 					}
+					//requeue will reprocess the pod, if it's removed actually then this will be a no-op and requeue will stop
+					pc.workqueue.AddAfter(stripPod(pod), time.Duration(pool.Spec.TTL+1)*time.Second)
+					// This fires an event everytime the controller processes an IP rather than everytime it deletes the IP actually
 					if err := pc.addressGarbageCollected(pod, nad.GetName(), pool.Spec.Range, allocationIndex); err != nil {
 						logging.Errorf("failed to issue event for successful IP address cleanup: %v", err)
 					}
@@ -380,6 +388,7 @@ func ipamConfiguration(nad *nadv1.NetworkAttachmentDefinition, podNamespace stri
 	ipamConfig.PodName = podName
 	ipamConfig.PodNamespace = podNamespace
 	ipamConfig.Kubernetes.KubeConfigPath = mountPath + ipamConfig.Kubernetes.KubeConfigPath // must use the mount path
+	ipamConfig.OverlappingRanges = false                                                    // we don't use this so always disable
 
 	return ipamConfig, nil
 }

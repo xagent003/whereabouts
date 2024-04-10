@@ -13,6 +13,8 @@ type IPPoolSpec struct {
 	// Allocations is the set of allocated IPs for the given range. Its` indices are a direct mapping to the
 	// IP with the same index/offset for the pool's range.
 	Allocations map[string]IPAllocation `json:"allocations"`
+
+	TTL int64 `json:"ttl"`
 }
 
 // ParseCIDR formats the Range of the IPPool
@@ -22,9 +24,10 @@ func (i IPPool) ParseCIDR() (net.IP, *net.IPNet, error) {
 
 // IPAllocation represents metadata about the pod/container owner of a specific IP
 type IPAllocation struct {
-	ContainerID string `json:"id"`
-	PodRef      string `json:"podref"`
-	IfName      string `json:"ifname,omitempty"`
+	ContainerID       string `json:"id"`
+	PodRef            string `json:"podref,omitempty"`
+	IfName            string `json:"ifname,omitempty"`
+	DeletionTimestamp int64  `json:"deletion_timestamp,omitempty"`
 }
 
 // +genclient
