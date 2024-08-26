@@ -16,7 +16,7 @@ import (
 
 func isIPPoolAllocationsEmpty(ctx context.Context, k8sIPAM *kubeClient.KubernetesIPAM, ipPoolCIDR string) wait.ConditionWithContextFunc {
 	return func(context.Context) (bool, error) {
-		ipPool, err := k8sIPAM.GetIPPool(ctx, kubeClient.PoolIdentifier{IpRange: ipPoolCIDR, NetworkName: kubeClient.UnnamedNetwork})
+		ipPool, err := k8sIPAM.GetIPPool(ctx, kubeClient.PoolIdentifier{IpRange: ipPoolCIDR, NetworkName: kubeClient.UnnamedNetwork}, 0)
 		noPoolError := fmt.Errorf("k8s pool initialized")
 		if errors.Is(err, noPoolError) {
 			return true, nil
@@ -39,7 +39,7 @@ func isIPPoolAllocationsEmptyForNodeSlices(ctx context.Context, k8sIPAM *kubeCli
 			return false, err
 		}
 		for _, node := range nodes.Items {
-			ipPool, err := k8sIPAM.GetIPPool(ctx, kubeClient.PoolIdentifier{NodeName: node.Name, IpRange: ipPoolCIDR, NetworkName: k8sIPAM.Config.NetworkName})
+			ipPool, err := k8sIPAM.GetIPPool(ctx, kubeClient.PoolIdentifier{NodeName: node.Name, IpRange: ipPoolCIDR, NetworkName: k8sIPAM.Config.NetworkName}, 0)
 			if err != nil {
 				if err.Error() == "k8s pool initialized" {
 					continue

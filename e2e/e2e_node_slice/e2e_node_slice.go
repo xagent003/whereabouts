@@ -3,8 +3,9 @@ package e2e_node_slice
 
 import (
 	"context"
-	"github.com/k8snetworkplumbingwg/whereabouts/pkg/api/whereabouts.cni.cncf.io/v1alpha1"
 	"time"
+
+	"github.com/k8snetworkplumbingwg/whereabouts/pkg/api/whereabouts.cni.cncf.io/v1alpha1"
 
 	. "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/extensions/table"
@@ -186,7 +187,7 @@ var _ = Describe("Whereabouts node slice functionality", func() {
 					for _, node := range nodes.Items {
 						nodeSliceRange, err := wbstorage.GetNodeSlicePoolRange(context.TODO(), k8sIPAM, node.Name)
 						Expect(err).NotTo(HaveOccurred())
-						ipPool, err := k8sIPAM.GetIPPool(context.Background(), wbstorage.PoolIdentifier{IpRange: nodeSliceRange, NetworkName: testNetworkName, NodeName: node.Name})
+						ipPool, err := k8sIPAM.GetIPPool(context.Background(), wbstorage.PoolIdentifier{IpRange: nodeSliceRange, NetworkName: testNetworkName, NodeName: node.Name}, 0)
 						if err == nil {
 							ipPools = append(ipPools, ipPool)
 						}
@@ -267,7 +268,7 @@ var _ = Describe("Whereabouts node slice functionality", func() {
 					for _, node := range nodes.Items {
 						nodeSliceRange, err := wbstorage.GetNodeSlicePoolRange(context.TODO(), k8sIPAM, node.Name)
 						Expect(err).NotTo(HaveOccurred())
-						ipPool, err := k8sIPAM.GetIPPool(context.Background(), wbstorage.PoolIdentifier{IpRange: nodeSliceRange, NetworkName: testNetworkName, NodeName: node.Name})
+						ipPool, err := k8sIPAM.GetIPPool(context.Background(), wbstorage.PoolIdentifier{IpRange: nodeSliceRange, NetworkName: testNetworkName, NodeName: node.Name}, 0)
 						if err == nil {
 							ipPools = append(ipPools, ipPool)
 						}

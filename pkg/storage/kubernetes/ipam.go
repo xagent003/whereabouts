@@ -259,7 +259,7 @@ func toIPReservationList(allocations map[string]whereaboutsv1alpha1.IPAllocation
 			continue
 		}
 		ip := iphelpers.IPAddOffset(firstip, uint64(numOffset))
-		reservelist = append(reservelist, whereaboutstypes.IPReservation{IP: ip, ContainerID: a.ContainerID, PodRef: a.PodRef, DeletionTimestamp: a.DeletionTimestamp})
+		reservelist = append(reservelist, whereaboutstypes.IPReservation{IP: ip, ContainerID: a.ContainerID, PodRef: a.PodRef, IfName: a.IfName, DeletionTimestamp: a.DeletionTimestamp})
 	}
 	return reservelist
 }
@@ -271,7 +271,7 @@ func toAllocationMap(reservelist []whereaboutstypes.IPReservation, firstip net.I
 		if err != nil {
 			return nil, err
 		}
-		allocations[fmt.Sprintf("%d", index)] = whereaboutsv1alpha1.IPAllocation{ContainerID: r.ContainerID, PodRef: r.PodRef, DeletionTimestamp: r.DeletionTimestamp}
+		allocations[fmt.Sprintf("%d", index)] = whereaboutsv1alpha1.IPAllocation{ContainerID: r.ContainerID, PodRef: r.PodRef, IfName: r.IfName, DeletionTimestamp: r.DeletionTimestamp}
 	}
 	return allocations, nil
 }

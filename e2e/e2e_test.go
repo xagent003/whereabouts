@@ -3,12 +3,13 @@ package whereabouts_e2e
 import (
 	"context"
 	"fmt"
-	"github.com/k8snetworkplumbingwg/whereabouts/e2e/util"
 	"net"
 	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/k8snetworkplumbingwg/whereabouts/e2e/util"
 
 	. "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/extensions/table"
@@ -330,7 +331,7 @@ var _ = Describe("Whereabouts functionality", func() {
 					Expect(err).NotTo(HaveOccurred())
 					Expect(podList.Items).NotTo(BeEmpty())
 
-					ipPool, err := k8sIPAM.GetIPPool(ctx, wbstorage.PoolIdentifier{IpRange: ipPoolCIDR, NetworkName: wbstorage.UnnamedNetwork})
+					ipPool, err := k8sIPAM.GetIPPool(ctx, wbstorage.PoolIdentifier{IpRange: ipPoolCIDR, NetworkName: wbstorage.UnnamedNetwork}, 0)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(poolconsistency.NewPoolConsistencyCheck(ipPool, podList.Items).MissingIPs()).To(BeEmpty())
 					Expect(poolconsistency.NewPoolConsistencyCheck(ipPool, podList.Items).StaleIPs()).To(BeEmpty())

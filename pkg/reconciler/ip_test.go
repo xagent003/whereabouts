@@ -392,6 +392,10 @@ func (dp dummyPool) Update(context.Context, []types.IPReservation) error {
 	return nil
 }
 
+func (dp dummyPool) GetTTL() int64 {
+	return 0
+}
+
 var _ = Describe("IPReconciler", func() {
 	var ipReconciler *ReconcileLooper
 

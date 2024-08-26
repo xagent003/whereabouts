@@ -128,6 +128,10 @@ func (mp *mockedPool) Update(context.Context, []types.IPReservation) error {
 	return nil
 }
 
+func (mp *mockedPool) GetTTL() int64 {
+	return 0
+}
+
 func newPod(name string, namespace string, ips ...string) corev1.Pod {
 	var ifaceStatus []k8snetplumbersv1.NetworkStatus
 	for i, ip := range ips {
