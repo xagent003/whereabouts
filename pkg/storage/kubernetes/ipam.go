@@ -470,6 +470,9 @@ func IPManagement(ctx context.Context, mode int, ipamConf whereaboutstypes.IPAMC
 	logging.Debugf("omniva before leader election client Namespace: %v", client.Namespace)
 	// setup leader election
 	le, leader, deposed := newLeaderElector(ctx, client.clientSet, client.Namespace, client)
+	if le == nil {
+		return nil, fmt.Errorf("whereabouts leader election failed")
+	}
 	var wg sync.WaitGroup
 	wg.Add(2)
 
