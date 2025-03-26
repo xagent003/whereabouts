@@ -74,20 +74,25 @@ func (rl *ReconcileLooper) findOrphanedIPsPerPool(ipPools []storage.IPPool) erro
 			logging.Debugf("the IP reservation: %s", ipReservation)
 			// Short-circuit for reservations with DeletionTimestamp past TTL
 			// These are already marked for deletion, so add them directly to orphaned list
-			if allocate.IsReservationPastTTL(&ipReservation, pool.GetTTL()) {
-				logging.Debugf("IP reservation has expired DeletionTimestamp, marking as orphaned: %s", ipReservation)
-				orphanIP.Allocations = append(orphanIP.Allocations, ipReservation)
-				continue
-			}
-			if ipReservation.PodRef == "" {
-				_ = logging.Errorf("pod ref missing for Allocations: %s", ipReservation)
-				continue
-			}
-			if rl.isOrphanedIP(ipReservation.PodRef, ipReservation.IP.String()) {
-				logging.Debugf("pod ref %s is not listed in the live pods list", ipReservation.PodRef)
-				orphanIP.Allocations = append(orphanIP.Allocations, ipReservation)
+			if ipReservation.DeletionTimestamp != 0 {
+				if allocate.IsReservationPastTTL(&ipReservation, pool.GetTTL()) {
+					logging.Debugf("IP reservation has expired DeletionTimestamp, marking as orphaned: %s", ipReservation)
+					orphanIP.Allocations = append(orphanIP.Allocations, ipReservation)
+					continue
+				}
+				logging.Debugf("IP reservation has DeletionTimestamp but not past TTL: %s", ipReservation)
+			} else {
+				if ipReservation.PodRef == "" {
+					_ = logging.Errorf("pod ref missing for Allocations: %s", ipReservation)
+					continue
+				}
+				if rl.isOrphanedIP(ipReservation.PodRef, ipReservation.IP.String()) {
+					logging.Debugf("pod ref %s is not listed in the live pods list", ipReservation.PodRef)
+					orphanIP.Allocations = append(orphanIP.Allocations, ipReservation)
+				}
 			}
 		}
+
 		if len(orphanIP.Allocations) > 0 {
 			rl.orphanedIPs = append(rl.orphanedIPs, orphanIP)
 		}
@@ -189,6 +194,8 @@ func (rl *ReconcileLooper) ReconcileIPPools() ([]net.IP, error) {
 	var totalCleanedUpIps []net.IP
 	for _, orphanedIP := range rl.orphanedIPs {
 		currentIPReservations := orphanedIP.Pool.Allocations()
+		originalReservations := make([]types.IPReservation, len(currentIPReservations))
+		copy(originalReservations, currentIPReservations)
 
 		// Process orphaned allocation peer pool
 		var cleanedUpIpsPerPool []net.IP
@@ -206,7 +213,7 @@ func (rl *ReconcileLooper) ReconcileIPPools() ([]net.IP, error) {
 			cleanedUpIpsPerPool = append(cleanedUpIpsPerPool, deallocatedIP)
 		}
 
-		if len(cleanedUpIpsPerPool) != 0 {
+		if len(originalReservations) != len(currentIPReservations) {
 			logging.Debugf("Going to update the reserve list to: %+v", currentIPReservations)
 
 			ctx, cancel := context.WithTimeout(context.Background(), storage.RequestTimeout)
