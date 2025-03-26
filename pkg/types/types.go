@@ -72,6 +72,7 @@ type IPAMConfig struct {
 	ConfigurationPath        string           `json:"configuration_path"`
 	PodName                  string
 	PodNamespace             string
+	PodUID                   string
 	NetworkName              string `json:"network_name,omitempty"`
 }
 
@@ -194,6 +195,7 @@ type IPReservation struct {
 	IP                net.IP `json:"ip"`
 	ContainerID       string `json:"id"`
 	PodRef            string `json:"podref,omitempty"`
+	PodUID            string `json:"poduid,omitempty"`
 	IfName            string `json:"ifName"`
 	DeletionTimestamp int64  `json:"deletion_timestamp,omitempty"`
 	IsAllocated       bool

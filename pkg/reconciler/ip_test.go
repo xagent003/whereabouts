@@ -18,6 +18,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	k8sclient "k8s.io/client-go/kubernetes"
 	fakek8sclient "k8s.io/client-go/kubernetes/fake"
 
@@ -374,6 +375,159 @@ var _ = Describe("Whereabouts IP reconciler", func() {
 
 		It("can be reconciled", func() {
 			Expect(reconcileLooper.ReconcileIPPools()).NotTo(BeEmpty())
+		})
+	})
+
+	Context("Pod UID reconciliation", func() {
+		const (
+			podUID       = "pod1-uid-123"
+			differentUID = "different-uid-456"
+		)
+
+		// Helper to generate a pod with a specific UID
+		generatePodWithUID := func(namespace, podName, uid string, ipNetworks ...ipInNetwork) *v1.Pod {
+			pod := generatePod(namespace, podName, ipNetworks...)
+			pod.UID = k8stypes.UID(uid)
+			return pod
+		}
+
+		Context("when pod UID matches allocation UID", func() {
+			var (
+				pool     *v1alpha1.IPPool
+				wbClient wbclient.Interface
+			)
+
+			BeforeEach(func() {
+				// Create a pod with specific UID
+				pod := generatePodWithUID(namespace, podName, podUID, ipInNetwork{ip: firstIPInRange, networkName: networkName})
+				k8sClientSet = fakek8sclient.NewSimpleClientset(pod)
+
+				// Create a pool with matching UID in the allocation
+				allocations := map[string]v1alpha1.IPAllocation{
+					"1": {
+						PodRef: fmt.Sprintf("%s/%s", namespace, podName),
+						PodUID: podUID,
+					},
+				}
+
+				pool = &v1alpha1.IPPool{
+					ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "pool1", ResourceVersion: "1"},
+					Spec: v1alpha1.IPPoolSpec{
+						Range:       ipRange,
+						Allocations: allocations,
+					},
+				}
+
+				wbClient = fakewbclient.NewSimpleClientset(pool)
+			})
+
+			It("should not mark the IP as orphaned", func() {
+				var err error
+				reconcileLooper, err = NewReconcileLooperWithClient(kubernetes.NewKubernetesClient(wbClient, k8sClientSet))
+				Expect(err).NotTo(HaveOccurred())
+
+				cleanedIPs, err := reconcileLooper.ReconcileIPPools()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cleanedIPs).To(BeEmpty(), "No IPs should be cleaned up when UID matches")
+
+				// Verify pool still has the allocation
+				poolAfterCleanup, err := wbClient.WhereaboutsV1alpha1().IPPools(namespace).Get(context.TODO(), pool.GetName(), metav1.GetOptions{})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(poolAfterCleanup.Spec.Allocations).To(HaveLen(1), "Pool should still have the allocation")
+			})
+		})
+
+		Context("when pod UID doesn't match allocation UID", func() {
+			var (
+				pool     *v1alpha1.IPPool
+				wbClient wbclient.Interface
+			)
+
+			BeforeEach(func() {
+				// Create a pod with specific UID
+				pod := generatePodWithUID(namespace, podName, podUID, ipInNetwork{ip: firstIPInRange, networkName: networkName})
+				k8sClientSet = fakek8sclient.NewSimpleClientset(pod)
+
+				// Create a pool with non-matching UID in the allocation
+				allocations := map[string]v1alpha1.IPAllocation{
+					"1": {
+						PodRef: fmt.Sprintf("%s/%s", namespace, podName),
+						PodUID: differentUID, // Different from pod's UID
+					},
+				}
+
+				pool = &v1alpha1.IPPool{
+					ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "pool1", ResourceVersion: "1"},
+					Spec: v1alpha1.IPPoolSpec{
+						Range:       ipRange,
+						Allocations: allocations,
+					},
+				}
+
+				wbClient = fakewbclient.NewSimpleClientset(pool)
+			})
+
+			It("should mark the IP as orphaned even if IP is on the pod", func() {
+				var err error
+				reconcileLooper, err = NewReconcileLooperWithClient(kubernetes.NewKubernetesClient(wbClient, k8sClientSet))
+				Expect(err).NotTo(HaveOccurred())
+
+				cleanedIPs, err := reconcileLooper.ReconcileIPPools()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cleanedIPs).To(HaveLen(1), "IP should be cleaned up when UID doesn't match")
+				Expect(cleanedIPs[0].String()).To(Equal(firstIPInRange), "Correct IP should be cleaned up")
+
+				// Verify pool has no allocations left
+				poolAfterCleanup, err := wbClient.WhereaboutsV1alpha1().IPPools(namespace).Get(context.TODO(), pool.GetName(), metav1.GetOptions{})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(poolAfterCleanup.Spec.Allocations).To(BeEmpty(), "Pool should have no allocations")
+			})
+		})
+
+		Context("when StatefulSet pods are replaced", func() {
+			var (
+				pool     *v1alpha1.IPPool
+				wbClient wbclient.Interface
+			)
+
+			BeforeEach(func() {
+				// Create pod with new UID (simulating a replaced StatefulSet pod)
+				newPod := generatePodWithUID(namespace, podName, podUID, ipInNetwork{ip: "10.10.10.2", networkName: networkName})
+				k8sClientSet = fakek8sclient.NewSimpleClientset(newPod)
+
+				// Create a pool with old UID in the allocation (from previous pod)
+				allocations := map[string]v1alpha1.IPAllocation{
+					"1": {
+						PodRef: fmt.Sprintf("%s/%s", namespace, podName),
+						PodUID: differentUID, // From previous pod
+					},
+				}
+
+				pool = &v1alpha1.IPPool{
+					ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "pool1", ResourceVersion: "1"},
+					Spec: v1alpha1.IPPoolSpec{
+						Range:       ipRange,
+						Allocations: allocations,
+					},
+				}
+
+				wbClient = fakewbclient.NewSimpleClientset(pool)
+			})
+
+			It("should recognize old allocation as orphaned even with same pod name", func() {
+				var err error
+				reconcileLooper, err = NewReconcileLooperWithClient(kubernetes.NewKubernetesClient(wbClient, k8sClientSet))
+				Expect(err).NotTo(HaveOccurred())
+
+				cleanedIPs, err := reconcileLooper.ReconcileIPPools()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cleanedIPs).To(HaveLen(1), "IP from old pod should be cleaned up")
+
+				// Verify pool has no allocations left
+				poolAfterCleanup, err := wbClient.WhereaboutsV1alpha1().IPPools(namespace).Get(context.TODO(), pool.GetName(), metav1.GetOptions{})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(poolAfterCleanup.Spec.Allocations).To(BeEmpty(), "Pool should have no allocations")
+			})
 		})
 	})
 })

@@ -8,12 +8,14 @@ import (
 	"github.com/k8snetworkplumbingwg/whereabouts/pkg/storage"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	v1podutil "k8s.io/kubernetes/pkg/api/v1/pod"
 )
 
 type podWrapper struct {
 	ips   map[string]void
 	phase v1.PodPhase
+	uid   types.UID
 }
 
 type void struct{}
@@ -26,6 +28,7 @@ func wrapPod(pod v1.Pod) *podWrapper {
 	return &podWrapper{
 		ips:   podIPSet,
 		phase: pod.Status.Phase,
+		uid:   pod.UID,
 	}
 }
 
@@ -110,11 +113,12 @@ func networkStatusFromPod(pod v1.Pod) string {
 
 func isIpOnPod(livePod *podWrapper, podRef, ip string) bool {
 	livePodIPs := livePod.ips
+	_, isFound := livePodIPs[ip]
 	logging.Debugf(
-		"pod reference %s matches allocation; Allocation IP: %s; PodIPs: %s",
+		"pod reference %s matches allocation; Allocation IP: %s; PodIPs: %s; isFound: %v",
 		podRef,
 		ip,
-		livePodIPs)
-	_, isFound := livePodIPs[ip]
+		livePodIPs,
+		isFound)
 	return isFound
 }

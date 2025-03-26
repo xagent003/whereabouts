@@ -24,21 +24,23 @@ func (a AssignmentError) Error() string {
 }
 
 // AssignIP assigns an IP using a range and a reserve list.
-func AssignIP(ipamConf types.RangeConfiguration, reservelist []types.IPReservation, containerID, podRef, ifName string) (net.IPNet, []types.IPReservation, error) {
-
+func AssignIP(rangeConf types.RangeConfiguration, reservelist []types.IPReservation, ipamConf *types.IPAMConfig, containerID, ifName string) (net.IPNet, []types.IPReservation, error) {
+	podRef := ipamConf.GetPodRef()
 	// Setup the basics here.
-	_, ipnet, _ := net.ParseCIDR(ipamConf.Range)
+	_, ipnet, _ := net.ParseCIDR(rangeConf.Range)
 
 	// Verify if podRef and ifName have already an allocation.
 	for _, r := range reservelist {
-		if r.PodRef == podRef && r.IfName == ifName && r.ContainerID == containerID {
+		// ifName must match because a Pod could have multiple atachments
+		// Now we either check if podRef (name/namespace) AND containerID are the same, or we use podUID
+		if (r.PodUID == ipamConf.PodUID || (r.PodRef == podRef && r.ContainerID == containerID)) && r.IfName == ifName {
 			logging.Debugf("IP already allocated for podRef: %q - ifName:%q - IP: %s", podRef, ifName, r.IP.String())
 
 			return net.IPNet{IP: r.IP, Mask: ipnet.Mask}, reservelist, nil
 		}
 	}
 
-	newip, updatedreservelist, err := IterateForAssignment(*ipnet, ipamConf.RangeStart, ipamConf.RangeEnd, reservelist, ipamConf.OmitRanges, containerID, podRef, ifName)
+	newip, updatedreservelist, err := IterateForAssignment(*ipnet, rangeConf.RangeStart, rangeConf.RangeEnd, reservelist, rangeConf.OmitRanges, containerID, podRef, ipamConf.PodUID, ifName)
 	if err != nil {
 		return net.IPNet{}, nil, err
 	}
@@ -121,7 +123,7 @@ func removeIdxFromSlice(s []types.IPReservation, i int) []types.IPReservation {
 // If rangeEnd is specified, it is respected if it lies within the ipnet and if it is >= rangeStart.
 // reserveList holds a list of reserved IPs.
 // excludeRanges holds a list of subnets to be excluded (meaning the full subnet, including the network and broadcast IP).
-func IterateForAssignment(ipnet net.IPNet, rangeStart net.IP, rangeEnd net.IP, reserveList []types.IPReservation, excludeRanges []string, containerID, podRef, ifName string) (net.IP, []types.IPReservation, error) {
+func IterateForAssignment(ipnet net.IPNet, rangeStart net.IP, rangeEnd net.IP, reserveList []types.IPReservation, excludeRanges []string, containerID, podRef, podUID, ifName string) (net.IP, []types.IPReservation, error) {
 	// Get the valid range, delimited by the ipnet's first and last usable IP as well as the rangeStart and rangeEnd.
 	firstIP, lastIP, err := iphelpers.GetIPRange(ipnet, rangeStart, rangeEnd)
 	if err != nil {
@@ -161,8 +163,14 @@ func IterateForAssignment(ipnet net.IPNet, rangeStart net.IP, rangeEnd net.IP, r
 			continue
 		}
 		// Assign and reserve the IP and return.
-		logging.Debugf("Reserving IP: %q - container ID %q - podRef: %q - ifName: %q", ip.String(), containerID, podRef, ifName)
-		reserveList = append(reserveList, types.IPReservation{IP: ip, ContainerID: containerID, PodRef: podRef, IfName: ifName})
+		logging.Debugf("Reserving IP: %q - podUID: %q - container ID %q - podRef: %q - ifName: %q",
+			ip.String(), podUID, containerID, podRef, ifName)
+		reserveList = append(reserveList, types.IPReservation{
+			IP:          ip,
+			ContainerID: containerID,
+			PodRef:      podRef,
+			IfName:      ifName,
+			PodUID:      podUID})
 		return ip, reserveList, nil
 	}
 

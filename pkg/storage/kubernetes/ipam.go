@@ -247,13 +247,18 @@ func toIPReservationList(allocations map[string]whereaboutsv1alpha1.IPAllocation
 	for offset, a := range allocations {
 		numOffset, err := strconv.ParseInt(offset, 10, 64)
 		if err != nil {
-			// allocations that are invalid int64s should be ignored
-			// toAllocationMap should be the only writer of offsets, via `fmt.Sprintf("%d", ...)``
 			logging.Errorf("Error decoding ip offset (backend: kubernetes): %v", err)
 			continue
 		}
 		ip := iphelpers.IPAddOffset(firstip, uint64(numOffset))
-		reservelist = append(reservelist, whereaboutstypes.IPReservation{IP: ip, ContainerID: a.ContainerID, PodRef: a.PodRef, IfName: a.IfName, DeletionTimestamp: a.DeletionTimestamp})
+		reservelist = append(reservelist, whereaboutstypes.IPReservation{
+			IP:                ip,
+			ContainerID:       a.ContainerID,
+			PodRef:            a.PodRef,
+			IfName:            a.IfName,
+			DeletionTimestamp: a.DeletionTimestamp,
+			PodUID:            a.PodUID,
+		})
 	}
 	return reservelist
 }
@@ -564,6 +569,24 @@ func IPManagementKubernetesUpdate(ctx context.Context, mode int, ipam *Kubernete
 	requestCtx, requestCancel := context.WithTimeout(ctx, storage.RequestTimeout)
 	defer requestCancel()
 
+	// Get Pod UID if we're allocating a new IP (don't need it for deallocation, save some API burden)
+	var podUID string
+	if mode == whereaboutstypes.Allocate {
+		// Try to get the Pod UID using the existing client
+		pod, err := ipam.clientSet.CoreV1().Pods(ipamConf.PodNamespace).Get(
+			requestCtx, ipamConf.PodName, metav1.GetOptions{})
+		if err != nil {
+			// to make IPAM faster as it is already slow, ignore the error and assume no podUID (legacy behavior)
+			logging.Debugf("Error getting pod %s/%s: %v",
+				ipamConf.PodNamespace, ipamConf.PodName, err)
+		} else {
+			podUID = string(pod.UID)
+			logging.Debugf("Found Pod UID %s for pod %s/%s",
+				podUID, ipamConf.PodNamespace, ipamConf.PodName)
+		}
+		ipamConf.PodUID = podUID
+	}
+
 	// handle the ip add/del until successful
 	var overlappingrangeallocations []whereaboutstypes.IPReservation
 	var ipforoverlappingrangeupdate net.IP
@@ -632,7 +655,7 @@ func IPManagementKubernetesUpdate(ctx context.Context, mode int, ipam *Kubernete
 			var updatedreservelist []whereaboutstypes.IPReservation
 			switch mode {
 			case whereaboutstypes.Allocate:
-				newip, updatedreservelist, err = allocate.AssignIP(ipRange, reservelist, ipam.ContainerID, ipamConf.GetPodRef(), ipam.IfName)
+				newip, updatedreservelist, err = allocate.AssignIP(ipRange, reservelist, &ipamConf, ipam.ContainerID, ipam.IfName)
 				if err != nil {
 					logging.Errorf("Error assigning IP: %v", err)
 					return newips, err

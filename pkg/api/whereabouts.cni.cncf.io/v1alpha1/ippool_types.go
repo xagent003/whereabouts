@@ -26,6 +26,7 @@ func (i IPPool) ParseCIDR() (net.IP, *net.IPNet, error) {
 type IPAllocation struct {
 	ContainerID       string `json:"id"`
 	PodRef            string `json:"podref,omitempty"`
+	PodUID            string `json:"poduid,omitempty"`
 	IfName            string `json:"ifname,omitempty"`
 	DeletionTimestamp int64  `json:"deletion_timestamp,omitempty"`
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"time"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -78,7 +77,7 @@ func (rl *ReconcileLooper) findOrphanedIPsPerPool(ipPools []storage.IPPool) erro
 					_ = logging.Errorf("pod ref missing for Allocations: %s", ipReservation)
 					continue
 				}
-				if rl.isOrphanedIP(ipReservation.PodRef, ipReservation.IP.String()) {
+				if rl.isOrphanedIP(ipReservation.PodRef, ipReservation.PodUID, ipReservation.IP.String()) {
 					logging.Debugf("pod ref %s is not listed in the live pods list", ipReservation.PodRef)
 					orphanIP.Allocations = append(orphanIP.Allocations, ipReservation)
 				}
@@ -93,7 +92,7 @@ func (rl *ReconcileLooper) findOrphanedIPsPerPool(ipPools []storage.IPPool) erro
 	return nil
 }
 
-func (rl *ReconcileLooper) isOrphanedIP(podRef string, ip string) bool {
+func (rl *ReconcileLooper) isOrphanedIP(podRef, podUID, ip string) bool {
 	livePod, exists := rl.liveWhereaboutsPods[podRef]
 	if !exists {
 		// Since we use informer cache listers, could be very rare case where IPPool has reservation
@@ -109,47 +108,31 @@ func (rl *ReconcileLooper) isOrphanedIP(podRef string, ip string) bool {
 			logging.Debugf("Pod %s not found in live pod list, IP %s is orphaned", podRef, ip)
 			return true
 		}
+		livePod = *refreshedPod
 	}
 
-	isIPFoundOnPod := isIpOnPod(&livePod, podRef, ip)
-	if isIPFoundOnPod {
+	// At this point PodRef does not exist, NOR does it have Deletiontimestamp set.
+	// This is a true orphaned Pod(node or kubelet died, for example, and Pod was cleaned up).
+	// If the PodUID mismatches, its an orphaned Pod. If the reservation is legacy (no UID),
+	// we don't care about pending Pod check either - that was only to handle race condition
+	// where reconciler runs immediately after IPPool is updated by IPAM, but Pod isn't annotated
+	// by kubelet with the multus annotation
+
+	if podUID != "" {
+		if string(livePod.uid) != podUID {
+			// UIDs don't match - this is a different pod with the same name
+			// For example a StatefulSet created on new node
+			logging.Debugf("Pod %s exists but UID %s doesn't match reservation UID %s, orphaned",
+				podRef, livePod.uid, podUID)
+			return true
+		}
+
+		logging.Debugf("Pod %s with matching UID %s found, IP %s is not orphaned",
+			podRef, podUID, ip)
 		return false
 	}
 
-	if livePod.phase == v1.PodPending {
-		podToMatch := &livePod
-		retries := 0
-
-		logging.Debugf("Re-fetching Pending Pod: %s IP-to-match: %s", podRef, ip)
-
-		for retries < storage.PodRefreshRetries {
-			retries++
-			podToMatch, _ = rl.refreshPod(podRef)
-			if podToMatch == nil {
-				logging.Debugf("Pod refresh returned nil, IP is orphaned")
-				return true
-			} else if podToMatch.phase != v1.PodPending {
-				logging.Debugf("Pending Pod is now in phase: %s", podToMatch.phase)
-				break
-			} else {
-				isIPFoundOnPod = isIpOnPod(podToMatch, podRef, ip)
-				if isIPFoundOnPod {
-					logging.Debugf("Found IP on refreshed pending pod, not orphaned")
-					return false
-				}
-				time.Sleep(time.Duration(500) * time.Millisecond)
-			}
-		}
-
-		isIPFoundOnPod = isIpOnPod(podToMatch, podRef, ip)
-		if isIPFoundOnPod {
-			// IP is found on pod after retries, so it's NOT orphaned
-			return false
-		}
-	}
-
-	// IP is not found on pod, so it IS orphaned
-	return true
+	return !isIpOnPod(&livePod, podRef, ip)
 }
 
 func (rl *ReconcileLooper) refreshPod(podRef string) (*podWrapper, error) {
@@ -252,7 +235,7 @@ func (rl *ReconcileLooper) findClusterWideIPReservations() error {
 
 		podRef := clusterWideIPReservation.Spec.PodRef
 
-		if rl.isOrphanedIP(podRef, denormalizedip) {
+		if rl.isOrphanedIP(podRef, "", denormalizedip) {
 			logging.Debugf("pod ref %s is not listed in the live pods list", podRef)
 			rl.orphanedClusterWideIPs = append(rl.orphanedClusterWideIPs, clusterWideIPReservation)
 		}

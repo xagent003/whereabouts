@@ -43,6 +43,8 @@ spec:
                       type: string
                     podref:
                       type: string
+                    poduid:
+                      type: string
                   required:
                   - id
                   type: object
