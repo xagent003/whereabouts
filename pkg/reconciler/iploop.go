@@ -72,6 +72,13 @@ func (rl *ReconcileLooper) findOrphanedIPsPerPool(ipPools []storage.IPPool) erro
 		}
 		for _, ipReservation := range pool.Allocations() {
 			logging.Debugf("the IP reservation: %s", ipReservation)
+			// Short-circuit for reservations with DeletionTimestamp past TTL
+			// These are already marked for deletion, so add them directly to orphaned list
+			if allocate.IsReservationPastTTL(&ipReservation, pool.GetTTL()) {
+				logging.Debugf("IP reservation has expired DeletionTimestamp, marking as orphaned: %s", ipReservation)
+				orphanIP.Allocations = append(orphanIP.Allocations, ipReservation)
+				continue
+			}
 			if ipReservation.PodRef == "" {
 				_ = logging.Errorf("pod ref missing for Allocations: %s", ipReservation)
 				continue

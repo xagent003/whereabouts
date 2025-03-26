@@ -78,20 +78,27 @@ func DeallocateIPForIndex(reservelist []types.IPReservation, index int, ttl int6
 	// Check if deletion timestamp is past the TTL threshold
 	logging.Debugf("omniva deallocation found deletion timestamp of %v", ipentry.DeletionTimestamp)
 
-	currTime := time.Now()
-	deletionTime := time.Unix(ipentry.DeletionTimestamp, 0)
-	expiration := deletionTime.Add(time.Duration(ttl) * time.Second)
-	isPastTTL := currTime.After(expiration)
-
-	if isPastTTL {
-		logging.Debugf("omniva past ttl: deletion timestamp: %v expiration: %v current: %v", deletionTime, expiration, currTime.Unix())
+	if IsReservationPastTTL(ipentry, ttl) {
 		// if timestamp set and after time remove
 		return removeIdxFromSlice(reservelist, index), ip
 	}
 
-	logging.Debugf("omniva not past ttl: deletion timestamp: %v after ttl %v current: %v", deletionTime, expiration, currTime.Unix())
 	// if timestamp set and ttl not happened yet do nothing
 	return reservelist, ip
+}
+
+// IsReservationPastTTL checks if the deletion timestamp has expired.
+func IsReservationPastTTL(ipentry *types.IPReservation, ttl int64) bool {
+	currTime := time.Now()
+	deletionTime := time.Unix(ipentry.DeletionTimestamp, 0)
+	expiration := deletionTime.Add(time.Duration(ttl) * time.Second)
+	isPastTTL := currTime.After(expiration)
+	if isPastTTL {
+		logging.Debugf("omniva past ttl: deletion timestamp: %v expiration: %v current: %v", deletionTime, expiration, currTime.Unix())
+	} else {
+		logging.Debugf("omniva not past ttl: deletion timestamp: %v after ttl %v current: %v", deletionTime, expiration, currTime.Unix())
+	}
+	return isPastTTL
 }
 
 func getMatchingIPReservationIndex(reservelist []types.IPReservation, id, ifName string) int {
