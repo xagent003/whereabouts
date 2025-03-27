@@ -39,21 +39,21 @@ func getPodRefsServedByWhereabouts(ipPools []storage.IPPool) map[string]void {
 	return whereaboutsPodRefs
 }
 
-func indexPods(livePodList []v1.Pod, whereaboutsPodNames map[string]void) map[string]podWrapper {
+func indexPods(livePodList []*v1.Pod, whereaboutsPodNames map[string]void) map[string]podWrapper {
 	podMap := map[string]podWrapper{}
 
 	for _, pod := range livePodList {
-		podRef := composePodRef(pod)
+		podRef := composePodRef(*pod)
 		if _, isWhereaboutsPod := whereaboutsPodNames[podRef]; !isWhereaboutsPod {
 			continue
 		}
 
-		if isPodMarkedForDeletion(&pod) {
+		if isPodMarkedForDeletion(pod) {
 			logging.Debugf("Pod %s is marked for deletion; skipping", podRef)
 			continue
 		}
 
-		wrappedPod := wrapPod(pod)
+		wrappedPod := wrapPod(*pod)
 		if wrappedPod != nil {
 			podMap[podRef] = *wrappedPod
 		}
@@ -69,11 +69,7 @@ func isPodMarkedForDeletion(pod *v1.Pod) bool {
 	}
 
 	// If a Pod ran to completion, like a Job, consider it dead
-	if v1podutil.IsPodTerminal(pod) {
-		return true
-	}
-
-	return false
+	return v1podutil.IsPodTerminal(pod)
 }
 
 func getFlatIPSet(pod v1.Pod) (map[string]void, error) {

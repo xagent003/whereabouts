@@ -2,12 +2,13 @@ package reconciler
 
 import (
 	"github.com/k8snetworkplumbingwg/whereabouts/pkg/logging"
+	"github.com/k8snetworkplumbingwg/whereabouts/pkg/storage/kubernetes"
 )
 
-func ReconcileIPs(errorChan chan error) {
+func ReconcileIPs(errorChan chan error, client *kubernetes.Client) {
 	logging.Verbosef("starting reconciler run")
 
-	ipReconcileLoop, err := NewReconcileLooper()
+	ipReconcileLoop, err := NewReconcileLooperWithClient(client)
 	if err != nil {
 		_ = logging.Errorf("failed to create the reconcile looper: %v", err)
 		errorChan <- err

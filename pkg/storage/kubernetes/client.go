@@ -7,11 +7,13 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	v1corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
 	whereaboutsv1alpha1 "github.com/k8snetworkplumbingwg/whereabouts/pkg/api/whereabouts.cni.cncf.io/v1alpha1"
 	wbclient "github.com/k8snetworkplumbingwg/whereabouts/pkg/client/clientset/versioned"
+	wblister "github.com/k8snetworkplumbingwg/whereabouts/pkg/client/listers/whereabouts.cni.cncf.io/v1alpha1"
 	"github.com/k8snetworkplumbingwg/whereabouts/pkg/logging"
 	"github.com/k8snetworkplumbingwg/whereabouts/pkg/storage"
 )
@@ -20,9 +22,11 @@ const listRequestTimeout = 30 * time.Second
 
 // Client has info on how to connect to the kubernetes cluster
 type Client struct {
-	client    wbclient.Interface
-	clientSet kubernetes.Interface
-	retries   int
+	client       wbclient.Interface
+	clientSet    kubernetes.Interface
+	podLister    v1corelisters.PodLister
+	ipPoolLister wblister.IPPoolLister
+	retries      int
 }
 
 func NewClient() (*Client, error) {
@@ -68,9 +72,58 @@ func NewKubernetesClient(k8sClient wbclient.Interface, k8sClientSet kubernetes.I
 	}
 }
 
+func (i *Client) ListPods() ([]*v1.Pod, error) {
+	logging.Debugf("listing Pods")
+
+	if i.podLister != nil {
+		logging.Debugf("using informer cache for pod listing")
+		return ListPodsFromInformer(i.podLister)
+	}
+
+	// Fall back to direct API call
+	logging.Debugf("informer not available, using direct API call to list Pods")
+	ctxWithTimeout, cancel := context.WithTimeout(context.Background(), listRequestTimeout)
+	defer cancel()
+	podList, err := i.clientSet.CoreV1().Pods(metav1.NamespaceAll).List(ctxWithTimeout, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	podListPtrs := make([]*v1.Pod, len(podList.Items))
+	for i := range podList.Items {
+		podListPtrs[i] = &podList.Items[i]
+	}
+	return podListPtrs, nil
+}
+
+// ListIPPools lists all IPPools using the informer cache if available
 func (i *Client) ListIPPools() ([]storage.IPPool, error) {
 	logging.Debugf("listing IP pools")
 
+	if i.ipPoolLister != nil {
+		logging.Debugf("using informer cache for IPPool listing")
+		ipPools, err := ListIPPoolsFromInformer(i.ipPoolLister)
+		if err != nil {
+			return nil, err
+		}
+
+		whereaboutsApiIPPoolList := make([]storage.IPPool, len(ipPools))
+		for idx, pool := range ipPools {
+			firstIP, _, err := pool.ParseCIDR()
+			if err != nil {
+				return nil, err
+			}
+			whereaboutsApiIPPoolList[idx] = &KubernetesIPPool{
+				client:  i.client,
+				firstIP: firstIP,
+				pool:    ipPools[idx],
+			}
+		}
+		return whereaboutsApiIPPoolList, nil
+	}
+
+	// Fall back to direct API call
+	logging.Debugf("no informer cache - Listing IPPools with direct API call")
 	ctxWithTimeout, cancel := context.WithTimeout(context.Background(), listRequestTimeout)
 	defer cancel()
 
@@ -90,20 +143,6 @@ func (i *Client) ListIPPools() ([]storage.IPPool, error) {
 			&KubernetesIPPool{client: i.client, firstIP: firstIP, pool: &ipPoolList.Items[idx]})
 	}
 	return whereaboutsApiIPPoolList, nil
-}
-
-func (i *Client) ListPods() ([]v1.Pod, error) {
-	logging.Debugf("listing Pods")
-
-	ctxWithTimeout, cancel := context.WithTimeout(context.Background(), listRequestTimeout)
-	defer cancel()
-
-	podList, err := i.clientSet.CoreV1().Pods(metav1.NamespaceAll).List(ctxWithTimeout, metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	return podList.Items, nil
 }
 
 func (i *Client) GetPod(namespace, name string) (*v1.Pod, error) {

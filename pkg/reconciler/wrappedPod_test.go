@@ -141,12 +141,12 @@ var _ = Describe("Pod Wrapper operations", func() {
 		}
 
 		table.DescribeTable("", func(podsInfo ...podInfo) {
-			var pods []v1.Pod
+			var pods []*v1.Pod
 			whereaboutsPods := map[string]void{}
 
 			for _, info := range podsInfo {
 				newPod := generatePodSpecWithNameAndNamespace(info.name, info.namespace, info.ips...)
-				pods = append(pods, newPod)
+				pods = append(pods, &newPod)
 				whereaboutsPods[composePodRef(newPod)] = void{}
 			}
 			expectedPodWrapper := map[string]podWrapper{}

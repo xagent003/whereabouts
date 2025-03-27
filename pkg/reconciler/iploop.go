@@ -8,6 +8,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/k8snetworkplumbingwg/whereabouts/pkg/allocate"
 	whereaboutsv1alpha1 "github.com/k8snetworkplumbingwg/whereabouts/pkg/api/whereabouts.cni.cncf.io/v1alpha1"
@@ -27,15 +28,6 @@ type ReconcileLooper struct {
 type OrphanedIPReservations struct {
 	Pool        storage.IPPool
 	Allocations []types.IPReservation
-}
-
-func NewReconcileLooper() (*ReconcileLooper, error) {
-	logging.Debugf("NewReconcileLooper - inferred connection data")
-	k8sClient, err := kubernetes.NewClient()
-	if err != nil {
-		return nil, logging.Errorf("failed to instantiate the Kubernetes client: %+v", err)
-	}
-	return NewReconcileLooperWithClient(k8sClient)
 }
 
 func NewReconcileLooperWithClient(k8sClient *kubernetes.Client) (*ReconcileLooper, error) {
@@ -104,8 +96,19 @@ func (rl *ReconcileLooper) findOrphanedIPsPerPool(ipPools []storage.IPPool) erro
 func (rl *ReconcileLooper) isOrphanedIP(podRef string, ip string) bool {
 	livePod, exists := rl.liveWhereaboutsPods[podRef]
 	if !exists {
-		logging.Debugf("Pod %s not found in live pod list, IP %s is orphaned", podRef, ip)
-		return true
+		// Since we use informer cache listers, could be very rare case where IPPool has reservation
+		// but the Pod lister isn't in sync. Worst thing to do is cleanup wrong IP.
+		// For sanity, refetch the Pod once
+		refreshedPod, err := rl.refreshPod(podRef)
+		if err != nil {
+			logging.Debugf("client error refreshing Pod, will try next reconcile loop: %v", err)
+			return false
+		}
+		if refreshedPod == nil {
+			// No client error, and Pod not found after direct GET to API server. Can confirm orphaned
+			logging.Debugf("Pod %s not found in live pod list, IP %s is orphaned", podRef, ip)
+			return true
+		}
 	}
 
 	isIPFoundOnPod := isIpOnPod(&livePod, podRef, ip)
@@ -121,7 +124,7 @@ func (rl *ReconcileLooper) isOrphanedIP(podRef string, ip string) bool {
 
 		for retries < storage.PodRefreshRetries {
 			retries++
-			podToMatch = rl.refreshPod(podRef)
+			podToMatch, _ = rl.refreshPod(podRef)
 			if podToMatch == nil {
 				logging.Debugf("Pod refresh returned nil, IP is orphaned")
 				return true
@@ -149,22 +152,26 @@ func (rl *ReconcileLooper) isOrphanedIP(podRef string, ip string) bool {
 	return true
 }
 
-func (rl *ReconcileLooper) refreshPod(podRef string) *podWrapper {
+func (rl *ReconcileLooper) refreshPod(podRef string) (*podWrapper, error) {
 	namespace, podName := splitPodRef(podRef)
 	if namespace == "" || podName == "" {
 		logging.Errorf("Invalid podRef format: %s", podRef)
-		return nil
+		return nil, fmt.Errorf("invalid podRef format: %s", podRef)
 	}
 
 	pod, err := rl.k8sClient.GetPod(namespace, podName)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			logging.Debugf("Pod not found while refreshing: %s", podRef)
+			return nil, nil
+		}
 		logging.Errorf("Failed to refresh Pod %s: %s\n", podRef, err)
-		return nil
+		return nil, err
 	}
 
 	wrappedPod := wrapPod(*pod)
 	logging.Debugf("Got refreshed pod: %v", wrappedPod)
-	return wrappedPod
+	return wrappedPod, nil
 }
 
 func splitPodRef(podRef string) (string, string) {

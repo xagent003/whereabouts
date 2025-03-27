@@ -24,6 +24,7 @@ import (
 	"github.com/k8snetworkplumbingwg/whereabouts/pkg/controlloop"
 	"github.com/k8snetworkplumbingwg/whereabouts/pkg/logging"
 	"github.com/k8snetworkplumbingwg/whereabouts/pkg/reconciler"
+	wbk8s "github.com/k8snetworkplumbingwg/whereabouts/pkg/storage/kubernetes"
 )
 
 const (
@@ -38,6 +39,8 @@ const (
 	cronSchedulerCreationError
 	fileWatcherError
 	couldNotCreateConfigWatcherError
+	couldNotCreateClientsets
+	couldNotCreateInformerCache
 )
 
 const (
@@ -56,6 +59,17 @@ func main() {
 	defer close(stopChan)
 	defer close(errorChan)
 	handleSignals(stopChan, os.Interrupt)
+
+	client, err := wbk8s.NewClient()
+	if err != nil {
+		_ = logging.Errorf("error creating clientsets: %v", err)
+		os.Exit(couldNotCreateClientsets)
+	}
+
+	if err := wbk8s.InitializeInformers(client, 0*time.Second, stopChan); err != nil {
+		_ = logging.Errorf("failing to initialize informer cache: %v", err)
+		os.Exit(couldNotCreateInformerCache)
+	}
 
 	networkController, err := newPodController(stopChan)
 	if err != nil {
@@ -83,7 +97,7 @@ func main() {
 		s,
 		watcher,
 		func() {
-			reconciler.ReconcileIPs(errorChan)
+			reconciler.ReconcileIPs(errorChan, client)
 		},
 	)
 	if err != nil {
